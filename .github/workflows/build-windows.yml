@@ -29,9 +29,21 @@ jobs:
       - name: Reassemble verified application source
         shell: pwsh
         run: |
-          $parts = Get-ChildItem "bundle2\part_*.b64" | Sort-Object Name
-          if ($parts.Count -ne 8) { throw "Expected 8 source chunks, found $($parts.Count)." }
-          $all = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
+          $names = @(
+            "bundle2\part_000.b64",
+            "bundle2\part_001.b64",
+            "bundle2\part_002.b64",
+            "bundle2\part_003.b64",
+            "bundle2\part_004.b64",
+            "bundle2\part_005.b64",
+            "bundle2\part_006a.b64",
+            "bundle2\part_006b.b64",
+            "bundle2\part_006c.b64",
+            "bundle2\part_006d.b64",
+            "bundle2\part_007.b64"
+          )
+          foreach ($n in $names) { if (-not (Test-Path $n)) { throw "Missing source chunk: $n" } }
+          $all = ($names | ForEach-Object { Get-Content $_ -Raw }) -join ""
           $all = $all -replace '\s', ''
           if ($all.Length -ne 97680) { throw "Unexpected base64 length: $($all.Length)." }
           [IO.File]::WriteAllBytes("slim_project.tar.xz", [Convert]::FromBase64String($all))
