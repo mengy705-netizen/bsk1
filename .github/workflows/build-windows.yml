@@ -32,10 +32,19 @@ jobs:
           $parts = Get-ChildItem "runtime_chunks\part_*.b64" | Sort-Object Name
           if ($parts.Count -eq 0) { throw "No runtime source chunks found." }
           Write-Host "Runtime chunks:" $parts.Count
-          $all = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
-          $all = $all -replace '[^A-Za-z0-9+/=]', ''
-          Write-Host "Sanitized base64 length:" $all.Length
-          [IO.File]::WriteAllBytes("runtime_bundle.zip", [Convert]::FromBase64String($all))
+          $ms = New-Object System.IO.MemoryStream
+          foreach ($part in $parts) {
+            $txt = (Get-Content $part.FullName -Raw) -replace '[^A-Za-z0-9+/=]', ''
+            try {
+              $bytes = [Convert]::FromBase64String($txt)
+            } catch {
+              throw "Invalid base64 in $($part.Name): $($_.Exception.Message)"
+            }
+            $ms.Write($bytes, 0, $bytes.Length)
+            Write-Host $part.Name $bytes.Length
+          }
+          [IO.File]::WriteAllBytes("runtime_bundle.zip", $ms.ToArray())
+          $ms.Dispose()
           Get-Item runtime_bundle.zip | Select-Object Length
           Expand-Archive -Path "runtime_bundle.zip" -DestinationPath "." -Force
           $main = Get-ChildItem -Recurse -Filter main.py | Where-Object { $_.FullName -match 'wing_strain_monitor' } | Select-Object -First 1
