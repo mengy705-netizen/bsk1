@@ -35,6 +35,11 @@ jobs:
           $ms = New-Object System.IO.MemoryStream
           foreach ($part in $parts) {
             $txt = (Get-Content $part.FullName -Raw) -replace '[^A-Za-z0-9+/=]', ''
+            $txt = $txt.TrimEnd('=')
+            $rem = $txt.Length % 4
+            if ($rem -eq 2) { $txt += '==' }
+            elseif ($rem -eq 3) { $txt += '=' }
+            elseif ($rem -eq 1) { throw "Invalid base64 length in $($part.Name): $($txt.Length)" }
             try {
               $bytes = [Convert]::FromBase64String($txt)
             } catch {
