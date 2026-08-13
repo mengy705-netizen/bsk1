@@ -1,6 +1,8 @@
 name: Build Windows GUI EXE
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -24,71 +26,92 @@ jobs:
           python-version: "3.10"
           architecture: "x64"
 
-      - name: Reassemble and extract application source
+      - name: Reassemble application source
         shell: pwsh
         run: |
-          $parts = Get-ChildItem "source_chunks\part_*.b64" | Sort-Object Name
-          if ($parts.Count -eq 0) { throw "No source chunks found." }
+          $parts = Get-ChildItem "runtime_chunks\part_*.b64" | Sort-Object Name
+          if ($parts.Count -eq 0) { throw "No runtime source chunks found." }
+          Write-Host "Runtime chunks:" $parts.Count
           $all = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
-          [IO.File]::WriteAllBytes("source_bundle.zip", [Convert]::FromBase64String($all))
-          Expand-Archive -Path "source_bundle.zip" -DestinationPath "." -Force
-          if (-not (Test-Path "wing_strain_monitor_windows_installer_project/main.py")) {
-            throw "Application source was not extracted correctly."
-          }
+          [IO.File]::WriteAllBytes("runtime_bundle.zip", [Convert]::FromBase64String($all))
+          Expand-Archive -Path "runtime_bundle.zip" -DestinationPath "." -Force
+          $main = Get-ChildItem -Recurse -Filter main.py | Where-Object { $_.FullName -match 'wing_strain_monitor' } | Select-Object -First 1
+          if (-not $main) { throw "Application source was not extracted correctly." }
+          $project = $main.Directory.FullName
+          Set-Content -Path project_path.txt -Value $project -Encoding utf8
+          Write-Host "Project:" $project
+          Get-ChildItem $project | Select-Object Name
 
       - name: Install build dependencies
         shell: pwsh
-        working-directory: wing_strain_monitor_windows_installer_project
         run: |
+          $project = (Get-Content project_path.txt -Raw).Trim()
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -r requirements_windows_build.txt
+          $req = Join-Path $project "requirements_windows_build.txt"
+          if (Test-Path $req) {
+            python -m pip install -r $req
+          } else {
+            python -m pip install numpy pandas matplotlib scipy scikit-learn joblib openpyxl Pillow h5py pykrige tensorflow==2.15.1 torch pyinstaller
+          }
           python -m pip check
 
       - name: Compile Python sources
         shell: pwsh
-        working-directory: wing_strain_monitor_windows_installer_project
-        run: python -m compileall -q .
-
-      - name: Build native GUI executable
-        shell: pwsh
-        working-directory: wing_strain_monitor_windows_installer_project
         run: |
-          python -m PyInstaller --noconfirm --clean WingStrainMonitor.spec
-          $folder = Join-Path "dist" "空天智感_机翼应变智能监测系统"
-          $exe = Join-Path $folder "空天智感_机翼应变智能监测系统.exe"
-          if (-not (Test-Path $exe)) {
-            Get-ChildItem -Recurse dist | Select-Object FullName
-            throw "Expected GUI EXE was not created: $exe"
+          $project = (Get-Content project_path.txt -Raw).Trim()
+          Push-Location $project
+          python -m compileall -q .
+          Pop-Location
+
+      - name: Build GUI executable
+        shell: pwsh
+        run: |
+          $project = (Get-Content project_path.txt -Raw).Trim()
+          Push-Location $project
+          $spec = Get-ChildItem -Filter *.spec | Select-Object -First 1
+          if ($spec) {
+            python -m PyInstaller --noconfirm --clean $spec.FullName
+          } else {
+            python -m PyInstaller --noconfirm --clean --windowed --name WingStrainMonitor main.py
           }
-          Get-Item $exe | Select-Object FullName, Length, LastWriteTime
+          $exe = Get-ChildItem -Recurse -Path dist -Filter *.exe | Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 1
+          if (-not $exe) { throw "No GUI executable was produced." }
+          Write-Host "Built EXE:" $exe.FullName
+          $folder = $exe.Directory.FullName
+          $targetExe = Join-Path $folder "空天智感_机翼应变智能监测系统.exe"
+          if ($exe.FullName -ne $targetExe) {
+            Copy-Item $exe.FullName $targetExe -Force
+            Remove-Item $exe.FullName -Force
+          }
+          Set-Content -Path "$env:GITHUB_WORKSPACE\exe_folder.txt" -Value $folder -Encoding utf8
+          Set-Content -Path "$env:GITHUB_WORKSPACE\exe_path.txt" -Value $targetExe -Encoding utf8
+          Get-Item $targetExe | Select-Object FullName,Length,LastWriteTime
+          Pop-Location
 
-      - name: Verify GUI executable starts
+      - name: GUI startup smoke test
         shell: pwsh
-        working-directory: wing_strain_monitor_windows_installer_project
         run: |
-          $folder = Join-Path "dist" "空天智感_机翼应变智能监测系统"
-          $exe = Join-Path $folder "空天智感_机翼应变智能监测系统.exe"
+          $exe = (Get-Content exe_path.txt -Raw).Trim()
           $p = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 10
           if ($p.HasExited) { throw "GUI executable exited during startup with code $($p.ExitCode)." }
           Stop-Process -Id $p.Id -Force
           Write-Host "GUI startup smoke test passed."
 
-      - name: Create portable package
+      - name: Create downloadable package
         shell: pwsh
-        working-directory: wing_strain_monitor_windows_installer_project
         run: |
+          $folder = (Get-Content exe_folder.txt -Raw).Trim()
           New-Item -ItemType Directory -Path release -Force | Out-Null
-          $src = Join-Path "dist" "空天智感_机翼应变智能监测系统"
-          $zip = Join-Path "release" "空天智感_机翼应变智能监测系统_Windows_x64_免安装版.zip"
-          Compress-Archive -Path "$src\*" -DestinationPath $zip -CompressionLevel Optimal -Force
-          Get-Item $zip | Select-Object FullName, Length, LastWriteTime
+          $zip = Join-Path $env:GITHUB_WORKSPACE "release\空天智感_机翼应变智能监测系统_Windows_x64_免安装版.zip"
+          Compress-Archive -Path "$folder\*" -DestinationPath $zip -CompressionLevel Optimal -Force
+          Get-Item $zip | Select-Object FullName,Length,LastWriteTime
 
       - name: Upload Windows executable package
         uses: actions/upload-artifact@v4
         with:
           name: AerospaceWingMonitor-Windows-x64
-          path: wing_strain_monitor_windows_installer_project/release/空天智感_机翼应变智能监测系统_Windows_x64_免安装版.zip
+          path: release/空天智感_机翼应变智能监测系统_Windows_x64_免安装版.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
