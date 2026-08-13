@@ -1,8 +1,6 @@
 name: Build Windows GUI EXE
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -25,13 +23,14 @@ jobs:
         with:
           python-version: "3.10"
           architecture: "x64"
-          cache: pip
 
-      - name: Extract application source
+      - name: Reassemble and extract application source
         shell: pwsh
         run: |
-          $b64 = Get-Content "source_bundle.b64" -Raw
-          [IO.File]::WriteAllBytes("source_bundle.zip", [Convert]::FromBase64String($b64))
+          $parts = Get-ChildItem "source_chunks\part_*.b64" | Sort-Object Name
+          if ($parts.Count -eq 0) { throw "No source chunks found." }
+          $all = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
+          [IO.File]::WriteAllBytes("source_bundle.zip", [Convert]::FromBase64String($all))
           Expand-Archive -Path "source_bundle.zip" -DestinationPath "." -Force
           if (-not (Test-Path "wing_strain_monitor_windows_installer_project/main.py")) {
             throw "Application source was not extracted correctly."
@@ -48,8 +47,7 @@ jobs:
       - name: Compile Python sources
         shell: pwsh
         working-directory: wing_strain_monitor_windows_installer_project
-        run: |
-          python -m compileall -q .
+        run: python -m compileall -q .
 
       - name: Build native GUI executable
         shell: pwsh
@@ -59,24 +57,20 @@ jobs:
           $folder = Join-Path "dist" "空天智感_机翼应变智能监测系统"
           $exe = Join-Path $folder "空天智感_机翼应变智能监测系统.exe"
           if (-not (Test-Path $exe)) {
-            Write-Host "dist contents:"
             Get-ChildItem -Recurse dist | Select-Object FullName
             throw "Expected GUI EXE was not created: $exe"
           }
-          Write-Host "Built executable: $exe"
           Get-Item $exe | Select-Object FullName, Length, LastWriteTime
 
-      - name: Verify GUI executable starts without console script
+      - name: Verify GUI executable starts
         shell: pwsh
         working-directory: wing_strain_monitor_windows_installer_project
         run: |
           $folder = Join-Path "dist" "空天智感_机翼应变智能监测系统"
           $exe = Join-Path $folder "空天智感_机翼应变智能监测系统.exe"
           $p = Start-Process -FilePath $exe -PassThru
-          Start-Sleep -Seconds 8
-          if ($p.HasExited) {
-            throw "The GUI executable exited during startup with code $($p.ExitCode)."
-          }
+          Start-Sleep -Seconds 10
+          if ($p.HasExited) { throw "GUI executable exited during startup with code $($p.ExitCode)." }
           Stop-Process -Id $p.Id -Force
           Write-Host "GUI startup smoke test passed."
 
@@ -86,7 +80,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path release -Force | Out-Null
           $src = Join-Path "dist" "空天智感_机翼应变智能监测系统"
-          $zip = Join-Path "release" "空天智感_机翼应变智能监测系统_Windows_x64_便携版.zip"
+          $zip = Join-Path "release" "空天智感_机翼应变智能监测系统_Windows_x64_免安装版.zip"
           Compress-Archive -Path "$src\*" -DestinationPath $zip -CompressionLevel Optimal -Force
           Get-Item $zip | Select-Object FullName, Length, LastWriteTime
 
@@ -94,8 +88,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AerospaceWingMonitor-Windows-x64
-          path: |
-            wing_strain_monitor_windows_installer_project/release/空天智感_机翼应变智能监测系统_Windows_x64_便携版.zip
+          path: wing_strain_monitor_windows_installer_project/release/空天智感_机翼应变智能监测系统_Windows_x64_免安装版.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
