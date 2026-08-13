@@ -54,6 +54,14 @@ jobs:
           if (-not (Test-Path "slim_project\main.py")) { throw "main.py missing after extraction." }
           if (-not (Test-Path "slim_project\WingStrainMonitor.spec")) { throw "PyInstaller spec missing after extraction." }
 
+      - name: Apply dense 3D LC-Kriging visualization fix
+        shell: pwsh
+        run: |
+          git fetch origin fix-3d-cloud-v2 --depth=1
+          git show origin/fix-3d-cloud-v2:patches/apply_visualization_fix.py | Out-File -FilePath apply_visualization_fix.py -Encoding utf8NoBOM
+          python apply_visualization_fix.py slim_project/core/visualization.py
+          python -m py_compile slim_project/core/visualization.py
+
       - name: Install build dependencies
         shell: pwsh
         working-directory: slim_project
@@ -100,15 +108,15 @@ jobs:
         run: |
           $folder = (Get-Content exe_folder.txt -Raw).Trim()
           New-Item -ItemType Directory -Path release -Force | Out-Null
-          $zip = Join-Path $env:GITHUB_WORKSPACE "release\空天智感_机翼应变智能监测系统_Windows_x64_免安装版.zip"
+          $zip = Join-Path $env:GITHUB_WORKSPACE "release\空天智感_机翼应变智能监测系统_Windows_x64_三维云图修正版.zip"
           Compress-Archive -Path "$folder\*" -DestinationPath $zip -CompressionLevel Optimal -Force
           Get-Item $zip | Select-Object FullName, Length, LastWriteTime
 
       - name: Upload Windows executable package
         uses: actions/upload-artifact@v4
         with:
-          name: AerospaceWingMonitor-Windows-x64
-          path: release/空天智感_机翼应变智能监测系统_Windows_x64_免安装版.zip
+          name: AerospaceWingMonitor-Windows-x64-3DCloudFix
+          path: release/空天智感_机翼应变智能监测系统_Windows_x64_三维云图修正版.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
