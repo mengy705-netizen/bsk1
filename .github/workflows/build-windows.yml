@@ -33,7 +33,10 @@ jobs:
           if ($parts.Count -eq 0) { throw "No runtime source chunks found." }
           Write-Host "Runtime chunks:" $parts.Count
           $all = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
+          $all = $all -replace '[^A-Za-z0-9+/=]', ''
+          Write-Host "Sanitized base64 length:" $all.Length
           [IO.File]::WriteAllBytes("runtime_bundle.zip", [Convert]::FromBase64String($all))
+          Get-Item runtime_bundle.zip | Select-Object Length
           Expand-Archive -Path "runtime_bundle.zip" -DestinationPath "." -Force
           $main = Get-ChildItem -Recurse -Filter main.py | Where-Object { $_.FullName -match 'wing_strain_monitor' } | Select-Object -First 1
           if (-not $main) { throw "Application source was not extracted correctly." }
