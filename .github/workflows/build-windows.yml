@@ -26,74 +26,43 @@ jobs:
           python-version: "3.10"
           architecture: "x64"
 
-      - name: Reassemble application source
+      - name: Reassemble verified application source
         shell: pwsh
         run: |
-          $parts = Get-ChildItem "runtime_chunks\part_*.b64" | Sort-Object Name
-          if ($parts.Count -eq 0) { throw "No runtime source chunks found." }
-          Write-Host "Runtime chunks:" $parts.Count
-          $ms = New-Object System.IO.MemoryStream
-          foreach ($part in $parts) {
-            $txt = (Get-Content $part.FullName -Raw) -replace '[^A-Za-z0-9+/=]', ''
-            $txt = $txt.TrimEnd('=')
-            $rem = $txt.Length % 4
-            if ($rem -eq 2) { $txt += '==' }
-            elseif ($rem -eq 3) { $txt += '=' }
-            elseif ($rem -eq 1) { throw "Invalid base64 length in $($part.Name): $($txt.Length)" }
-            try {
-              $bytes = [Convert]::FromBase64String($txt)
-            } catch {
-              throw "Invalid base64 in $($part.Name): $($_.Exception.Message)"
-            }
-            $ms.Write($bytes, 0, $bytes.Length)
-            Write-Host $part.Name $bytes.Length
-          }
-          [IO.File]::WriteAllBytes("runtime_bundle.zip", $ms.ToArray())
-          $ms.Dispose()
-          Get-Item runtime_bundle.zip | Select-Object Length
-          Expand-Archive -Path "runtime_bundle.zip" -DestinationPath "." -Force
-          $main = Get-ChildItem -Recurse -Filter main.py | Where-Object { $_.FullName -match 'wing_strain_monitor' } | Select-Object -First 1
-          if (-not $main) { throw "Application source was not extracted correctly." }
-          $project = $main.Directory.FullName
-          Set-Content -Path project_path.txt -Value $project -Encoding utf8
-          Write-Host "Project:" $project
-          Get-ChildItem $project | Select-Object Name
+          $parts = Get-ChildItem "bundle2\part_*.b64" | Sort-Object Name
+          if ($parts.Count -ne 8) { throw "Expected 8 source chunks, found $($parts.Count)." }
+          $all = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
+          $all = $all -replace '\s', ''
+          if ($all.Length -ne 97680) { throw "Unexpected base64 length: $($all.Length)." }
+          [IO.File]::WriteAllBytes("slim_project.tar.xz", [Convert]::FromBase64String($all))
+          $sha = (Get-FileHash slim_project.tar.xz -Algorithm SHA256).Hash.ToLower()
+          Write-Host "Source SHA256: $sha"
+          if ($sha -ne "5571a9515543d6c998fa9d7e1e55f17a984a1c925ab874ad32a54382df7e7b48") { throw "Source bundle checksum mismatch." }
+          tar -xJf slim_project.tar.xz
+          if (-not (Test-Path "slim_project\main.py")) { throw "main.py missing after extraction." }
+          if (-not (Test-Path "slim_project\WingStrainMonitor.spec")) { throw "PyInstaller spec missing after extraction." }
 
       - name: Install build dependencies
         shell: pwsh
+        working-directory: slim_project
         run: |
-          $project = (Get-Content project_path.txt -Raw).Trim()
           python -m pip install --upgrade pip setuptools wheel
-          $req = Join-Path $project "requirements_windows_build.txt"
-          if (Test-Path $req) {
-            python -m pip install -r $req
-          } else {
-            python -m pip install numpy pandas matplotlib scipy scikit-learn joblib openpyxl Pillow h5py pykrige tensorflow==2.15.1 torch pyinstaller
-          }
+          python -m pip install -r requirements_windows_build.txt
           python -m pip check
 
       - name: Compile Python sources
         shell: pwsh
+        working-directory: slim_project
         run: |
-          $project = (Get-Content project_path.txt -Raw).Trim()
-          Push-Location $project
           python -m compileall -q .
-          Pop-Location
 
-      - name: Build GUI executable
+      - name: Build native GUI executable
         shell: pwsh
+        working-directory: slim_project
         run: |
-          $project = (Get-Content project_path.txt -Raw).Trim()
-          Push-Location $project
-          $spec = Get-ChildItem -Filter *.spec | Select-Object -First 1
-          if ($spec) {
-            python -m PyInstaller --noconfirm --clean $spec.FullName
-          } else {
-            python -m PyInstaller --noconfirm --clean --windowed --name WingStrainMonitor main.py
-          }
+          python -m PyInstaller --noconfirm --clean WingStrainMonitor.spec
           $exe = Get-ChildItem -Recurse -Path dist -Filter *.exe | Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 1
           if (-not $exe) { throw "No GUI executable was produced." }
-          Write-Host "Built EXE:" $exe.FullName
           $folder = $exe.Directory.FullName
           $targetExe = Join-Path $folder "空天智感_机翼应变智能监测系统.exe"
           if ($exe.FullName -ne $targetExe) {
@@ -102,27 +71,26 @@ jobs:
           }
           Set-Content -Path "$env:GITHUB_WORKSPACE\exe_folder.txt" -Value $folder -Encoding utf8
           Set-Content -Path "$env:GITHUB_WORKSPACE\exe_path.txt" -Value $targetExe -Encoding utf8
-          Get-Item $targetExe | Select-Object FullName,Length,LastWriteTime
-          Pop-Location
+          Get-Item $targetExe | Select-Object FullName, Length, LastWriteTime
 
       - name: GUI startup smoke test
         shell: pwsh
         run: |
           $exe = (Get-Content exe_path.txt -Raw).Trim()
           $p = Start-Process -FilePath $exe -PassThru
-          Start-Sleep -Seconds 10
+          Start-Sleep -Seconds 12
           if ($p.HasExited) { throw "GUI executable exited during startup with code $($p.ExitCode)." }
           Stop-Process -Id $p.Id -Force
           Write-Host "GUI startup smoke test passed."
 
-      - name: Create downloadable package
+      - name: Create portable package
         shell: pwsh
         run: |
           $folder = (Get-Content exe_folder.txt -Raw).Trim()
           New-Item -ItemType Directory -Path release -Force | Out-Null
           $zip = Join-Path $env:GITHUB_WORKSPACE "release\空天智感_机翼应变智能监测系统_Windows_x64_免安装版.zip"
           Compress-Archive -Path "$folder\*" -DestinationPath $zip -CompressionLevel Optimal -Force
-          Get-Item $zip | Select-Object FullName,Length,LastWriteTime
+          Get-Item $zip | Select-Object FullName, Length, LastWriteTime
 
       - name: Upload Windows executable package
         uses: actions/upload-artifact@v4
