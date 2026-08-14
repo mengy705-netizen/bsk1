@@ -47,13 +47,13 @@ jobs:
           set -euo pipefail
           mkdir -p release_download
           gh run download "$RUN_ID" --repo "$REPO" --name "AerospaceWingMonitor-Windows-x64-Latest" --dir release_download
-          asset=$(find release_download -maxdepth 2 -type f -name '*.zip' | head -n 1)
-          if [[ -z "$asset" ]]; then
+          source_asset=$(find release_download -maxdepth 2 -type f -name '*.zip' | head -n 1)
+          if [[ -z "$source_asset" ]]; then
             echo "Windows ZIP artifact not found in run $RUN_ID."
             exit 1
           fi
-          cp "$asset" "空天智感_机翼应变智能监测系统_Windows_x64_最新版.zip"
-          ls -lh "空天智感_机翼应变智能监测系统_Windows_x64_最新版.zip"
+          cp "$source_asset" "WingStrainMonitor_Windows_x64_Latest.zip"
+          ls -lh "WingStrainMonitor_Windows_x64_Latest.zip"
 
       - name: Publish Latest Release
         env:
@@ -62,9 +62,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          asset="空天智感_机翼应变智能监测系统_Windows_x64_最新版.zip"
+          asset="WingStrainMonitor_Windows_x64_Latest.zip"
           if gh release view latest --repo "$REPO" >/dev/null 2>&1; then
+            gh release delete-asset latest "_._Windows_x64_.zip" --repo "$REPO" -y >/dev/null 2>&1 || true
             gh release upload latest "$asset" --repo "$REPO" --clobber
           else
-            gh release create latest "$asset" --repo "$REPO" --target main --title "空天智感机翼应变智能监测系统 - 最新版" --notes "Windows x64 免安装版。下载 ZIP，解压后直接运行 空天智感_机翼应变智能监测系统.exe。\n\nCopyright © 2026 空天智感团队. All Rights Reserved. 版权所有。"
+            gh release create latest "$asset" --repo "$REPO" --target main --title "空天智感机翼应变智能监测系统 - 最新版" --notes "Windows x64 免安装版。下载 WingStrainMonitor_Windows_x64_Latest.zip，解压后直接运行 空天智感_机翼应变智能监测系统.exe。\n\nCopyright © 2026 空天智感团队. All Rights Reserved. 版权所有。"
           fi
