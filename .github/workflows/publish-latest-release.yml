@@ -1,0 +1,70 @@
+name: Publish Latest Windows Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-latest-release.yml'
+  workflow_run:
+    workflows: ['Build Windows GUI EXE']
+    types: [completed]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Locate latest Windows build artifact
+        id: locate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id="${EVENT_RUN_ID:-}"
+          if [[ -z "$run_id" || "$run_id" == "null" ]]; then
+            run_id=$(gh run list --repo "$REPO" --workflow "Build Windows GUI EXE" --limit 20 --json databaseId --jq '.[0].databaseId')
+          fi
+          if [[ -z "$run_id" || "$run_id" == "null" ]]; then
+            echo "No Windows build run found."
+            exit 1
+          fi
+          echo "Using build run: $run_id"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Download latest Windows package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ steps.locate.outputs.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release_download
+          gh run download "$RUN_ID" --repo "$REPO" --name "AerospaceWingMonitor-Windows-x64-Latest" --dir release_download
+          asset=$(find release_download -maxdepth 2 -type f -name '*.zip' | head -n 1)
+          if [[ -z "$asset" ]]; then
+            echo "Windows ZIP artifact not found in run $RUN_ID."
+            exit 1
+          fi
+          cp "$asset" "空天智感_机翼应变智能监测系统_Windows_x64_最新版.zip"
+          ls -lh "空天智感_机翼应变智能监测系统_Windows_x64_最新版.zip"
+
+      - name: Publish Latest Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="空天智感_机翼应变智能监测系统_Windows_x64_最新版.zip"
+          if gh release view latest --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload latest "$asset" --repo "$REPO" --clobber
+          else
+            gh release create latest "$asset" --repo "$REPO" --target main --title "空天智感机翼应变智能监测系统 - 最新版" --notes "Windows x64 免安装版。下载 ZIP，解压后直接运行 空天智感_机翼应变智能监测系统.exe。\n\nCopyright © 2026 空天智感团队. All Rights Reserved. 版权所有。"
+          fi
