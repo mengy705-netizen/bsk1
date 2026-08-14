@@ -3,10 +3,13 @@ name: Build Windows GUI EXE
 on:
   push:
     branches: [main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/build-windows.yml'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-windows-x64:
@@ -16,6 +19,7 @@ jobs:
       PYTHONUTF8: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       TF_CPP_MIN_LOG_LEVEL: "2"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,45 +30,16 @@ jobs:
           python-version: "3.10"
           architecture: "x64"
 
-      - name: Reassemble verified application source
+      - name: Verify clean source layout
         shell: pwsh
         run: |
-          $names = @(
-            "bundle2\part_000.b64",
-            "bundle2\part_001.b64",
-            "bundle2\part_002.b64",
-            "bundle2\part_003.b64",
-            "bundle2\part_004.b64",
-            "bundle2\part_005.b64",
-            "bundle2\part_006a.b64",
-            "bundle2\part_006b.b64",
-            "bundle2\part_006c.b64",
-            "bundle2\part_006d.b64",
-            "bundle2\part_007.b64"
-          )
-          foreach ($n in $names) { if (-not (Test-Path $n)) { throw "Missing source chunk: $n" } }
-          $all = ($names | ForEach-Object { Get-Content $_ -Raw }) -join ""
-          $all = $all -replace '\s', ''
-          if ($all.Length -ne 97680) { throw "Unexpected base64 length: $($all.Length)." }
-          [IO.File]::WriteAllBytes("slim_project.tar.xz", [Convert]::FromBase64String($all))
-          $sha = (Get-FileHash slim_project.tar.xz -Algorithm SHA256).Hash.ToLower()
-          Write-Host "Source SHA256: $sha"
-          if ($sha -ne "5571a9515543d6c998fa9d7e1e55f17a984a1c925ab874ad32a54382df7e7b48") { throw "Source bundle checksum mismatch." }
-          tar -xJf slim_project.tar.xz
-          if (-not (Test-Path "slim_project\main.py")) { throw "main.py missing after extraction." }
-          if (-not (Test-Path "slim_project\WingStrainMonitor.spec")) { throw "PyInstaller spec missing after extraction." }
-
-      - name: Apply dense 3D LC-Kriging visualization fix
-        shell: pwsh
-        run: |
-          git fetch origin fix-3d-cloud-v2 --depth=1
-          git show origin/fix-3d-cloud-v2:patches/apply_visualization_fix.py | Out-File -FilePath apply_visualization_fix.py -Encoding utf8NoBOM
-          python apply_visualization_fix.py slim_project/core/visualization.py
-          python -m py_compile slim_project/core/visualization.py
+          if (-not (Test-Path "app\main.py")) { throw "app/main.py is missing." }
+          if (-not (Test-Path "app\WingStrainMonitor.spec")) { throw "app/WingStrainMonitor.spec is missing." }
+          if (-not (Test-Path "app\core\visualization.py")) { throw "app/core/visualization.py is missing." }
 
       - name: Install build dependencies
         shell: pwsh
-        working-directory: slim_project
+        working-directory: app
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install -r requirements_windows_build.txt
@@ -72,13 +47,13 @@ jobs:
 
       - name: Compile Python sources
         shell: pwsh
-        working-directory: slim_project
+        working-directory: app
         run: |
           python -m compileall -q .
 
       - name: Build native GUI executable
         shell: pwsh
-        working-directory: slim_project
+        working-directory: app
         run: |
           python -m PyInstaller --noconfirm --clean WingStrainMonitor.spec
           $exe = Get-ChildItem -Recurse -Path dist -Filter *.exe | Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 1
@@ -103,20 +78,33 @@ jobs:
           Stop-Process -Id $p.Id -Force
           Write-Host "GUI startup smoke test passed."
 
-      - name: Create portable package
+      - name: Create portable Windows package
         shell: pwsh
         run: |
           $folder = (Get-Content exe_folder.txt -Raw).Trim()
           New-Item -ItemType Directory -Path release -Force | Out-Null
-          $zip = Join-Path $env:GITHUB_WORKSPACE "release\空天智感_机翼应变智能监测系统_Windows_x64_三维云图修正版.zip"
+          $zip = Join-Path $env:GITHUB_WORKSPACE "release\空天智感_机翼应变智能监测系统_Windows_x64_最新版.zip"
           Compress-Archive -Path "$folder\*" -DestinationPath $zip -CompressionLevel Optimal -Force
           Get-Item $zip | Select-Object FullName, Length, LastWriteTime
 
-      - name: Upload Windows executable package
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AerospaceWingMonitor-Windows-x64-3DCloudFix
-          path: release/空天智感_机翼应变智能监测系统_Windows_x64_三维云图修正版.zip
+          name: AerospaceWingMonitor-Windows-x64-Latest
+          path: release/空天智感_机翼应变智能监测系统_Windows_x64_最新版.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
+
+      - name: Publish or update Latest Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $asset = "release\空天智感_机翼应变智能监测系统_Windows_x64_最新版.zip"
+          gh release view latest *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create latest $asset --target "$env:GITHUB_SHA" --title "空天智感机翼应变智能监测系统 - 最新版" --notes "Windows x64 免安装版。下载 ZIP，解压后直接运行 空天智感_机翼应变智能监测系统.exe。Copyright © 2026 空天智感团队. All Rights Reserved. 版权所有。"
+          } else {
+            gh release upload latest $asset --clobber
+          }
