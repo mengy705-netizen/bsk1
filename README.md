@@ -8,7 +8,7 @@
 
 ## 下载
 
-**可直接运行的 Windows 版：**进入仓库右侧 **Releases** → **Latest**，下载 `空天智感_机翼应变智能监测系统_Windows_x64_最新版.zip`，解压后双击 EXE 即可运行。
+**可直接运行的 Windows 版：**进入仓库右侧 **Releases** → **Latest**，下载 `WingStrainMonitor_Windows_x64_Latest.zip`，解压后双击 `空天智感_机翼应变智能监测系统.exe` 即可运行，不需要额外安装 Python。
 
 **源码：**点击绿色 **Code** → **Download ZIP**。完整源码位于下载包中的 `app/` 目录。
 
@@ -67,7 +67,7 @@ LC-Kriging 应变场重构
 ```text
 bsk1/
 ├─ app/                  # 软件完整源码
-├─ .github/workflows/    # Windows 自动构建与发布
+├─ .github/workflows/    # Windows 自动构建与 Latest Release 发布
 ├─ README.md             # 项目介绍
 ├─ DOWNLOAD.md           # 下载说明
 ├─ COPYRIGHT.md          # 版权声明
@@ -76,7 +76,7 @@ bsk1/
 
 ## 自动构建与发布
 
-当 `app/` 中的正式源码发生更新时，GitHub Actions 会在 Windows x64 环境重新构建并进行 GUI 启动测试，随后自动更新 **Latest Release** 中的可运行版本。
+正式源码统一保存在 `app/`。Windows 构建完成后，独立发布工作流会把最新可运行包自动同步到 **Releases → Latest**，因此以后可以始终从固定的 Latest 页面获取最新 Windows 版本。
 
 ## 版权
 
