@@ -1,0 +1,115 @@
+{
+  "app_title": "机翼应变监测与模型管理系统",
+  "geometry": {
+    "span_mm": 662.5,
+    "root_chord_mm": 411.0,
+    "tip_chord_mm": 300.0,
+    "grid_span_points": 240,
+    "grid_chord_points": 180
+  },
+  "sensors": {
+    "span_fractions": [
+      0.08,
+      0.2,
+      0.32,
+      0.44,
+      0.56,
+      0.68,
+      0.8,
+      0.92
+    ],
+    "chord_fractions": [
+      0.08,
+      0.24,
+      0.4,
+      0.56,
+      0.72,
+      0.88
+    ],
+    "input_order": "span-major"
+  },
+  "model": {
+    "output_order": [
+      "load_x_mm",
+      "load_z_mm",
+      "load_n"
+    ],
+    "strain_scale": 1.0,
+    "demo_load_gain": 0.55
+  },
+  "visualization": {
+    "strain_unit": "με",
+    "strain_label": "最大主应变 ε1",
+    "font_family": "Microsoft YaHei",
+    "show_sensor_ids": false,
+    "show_sensor_points": true,
+    "levels": 36,
+    "dpi": 140,
+    "colormap": "turbo",
+    "surface_stride": 3,
+    "wing_thickness_ratio": 0.12,
+    "vertical_exaggeration": 1.25,
+    "view_elevation": 25.0,
+    "view_azimuth": -62.0
+  },
+  "transfer_learning": {
+    "feature_count": 48,
+    "expected_load_columns": [
+      "load_x",
+      "load_z或load_y",
+      "load_size或load_n"
+    ],
+    "expected_damage_columns": [
+      "hole_x或damage_x",
+      "hole_z或hole_y或damage_z",
+      "hole_d或damage_size"
+    ],
+    "active_manifest": "models/active_model.json",
+    "backend": "Keras-AE-guided-KD-v3",
+    "training_script": "backend/train_transfer_ae_guided_kd_v3.py",
+    "teacher_models_dir": "teacher_models",
+    "position_scale": 1000.0,
+    "load_scale": 1.0,
+    "pending_manifest": "models/pending_model.json",
+    "requires_pretrained_model": true,
+    "pretrained_manifest": "pretrained_models/active_pretrain.json"
+  },
+  "pretraining": {
+    "feature_count": 48,
+    "backend": "BP-CNN-Wing-Pretrain-v1",
+    "training_script": "backend/train_pretrain_bp_cnn.py",
+    "active_manifest": "pretrained_models/active_pretrain.json",
+    "intact_outputs": [
+      "load_x",
+      "load_z",
+      "load_size"
+    ],
+    "damage_outputs": [
+      "damage_x",
+      "damage_z",
+      "damage_size"
+    ]
+  },
+  "external_models": {
+    "active_manifest": "external_models/active_external_model.json",
+    "feature_count": 48,
+    "required_outputs": [
+      "load_x_mm",
+      "load_z_mm",
+      "load_n"
+    ],
+    "optional_outputs": [
+      "damage_probability",
+      "damage_x_mm",
+      "damage_z_mm",
+      "damage_size_mm"
+    ]
+  },
+  "lc_kriging": {
+    "variogram": "linear",
+    "allow_rbf_fallback": true,
+    "allow_nearest_fallback": true,
+    "sensor_coordinate_order": "z,x",
+    "source": "uploaded_lc_kriging_pipeline.py"
+  }
+}

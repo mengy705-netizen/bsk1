@@ -1,0 +1,17 @@
+numpy>=1.24,<2.0
+matplotlib>=3.7
+scipy>=1.10
+pandas>=2.0
+openpyxl>=3.1
+joblib>=1.3
+scikit-learn>=1.3
+Pillow>=10.0
+# 用户指定的 train_transfer_ae_guided_kd_v3.py 使用 TensorFlow/Keras H5 模型。
+# 建议使用 Python 3.10 或 3.11。
+tensorflow>=2.15,<2.17
+# 保留旧PyTorch后台模型的兼容读取能力；不使用旧模型时可不安装。
+torch>=2.0
+
+# 内置LC-Kriging优先使用PyKrige；不可用时自动回退到SciPy RBF。
+pykrige>=1.7
+h5py>=3.9
